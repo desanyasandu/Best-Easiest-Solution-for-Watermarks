@@ -1,19 +1,36 @@
-How It Works
-PPTX Processing (5-step pipeline):
-Scans .rels files — finds all hyperlink relationships pointing to gamma.app
-Removes hyperlinks — deletes <Relationship> entries linking to gamma.app
-Removes watermark shapes — uses regex to find and remove <p:sp>, <p:pic>, <p:grpSp>, and <mc:AlternateContent> elements containing "Made with Gamma" text or gamma relationship IDs — processes slides, layouts, and masters
-Removes branding slide — detects if the last slide is a short Gamma branding slide and removes it (updating presentation.xml, .rels, and [Content_Types].xml)
-Cleans metadata — removes Gamma from app.xml and core.xml properties
-PDF Processing (4-step pipeline):
-Removes annotations — finds and removes link annotations pointing to gamma.app
-Content stream cleanup — scans page content streams for "gamma" text blocks (BT...ET) and removes them
-Removes last page — removes the Gamma branding page
-Cleans metadata — removes Producer/Creator fields referencing Gamma
-Key Features:
-100% client-side — no server uploads, all processing in-browser
-Uses JSZip to unpack/repack PPTX (which is a ZIP archive of XML files)
-Uses pdf-lib for PDF manipulation
-Depth-aware XML parsing for nested group shapes
-Detailed activity log showing exactly what was changed
-Drag & drop file upload with visual feedback
+# 🧹 Gamma Watermark Remover
+
+A fully client-side web application that removes **"Made with Gamma"** watermarks from PPTX and PDF files — instantly, privately, and without any server uploads.
+
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Client-Side](https://img.shields.io/badge/processing-100%25%20client--side-green)
+![PPTX](https://img.shields.io/badge/format-PPTX-orange)
+![PDF](https://img.shields.io/badge/format-PDF-red)
+
+---
+
+## 🌐 Live Demo
+
+Simply open the `index.html` file in any modern browser — no installation or server required.
+
+---
+
+## ✨ Key Features
+
+| Feature | Description |
+|---|---|
+| 🔒 **100% Client-Side** | No files are uploaded to any server. All processing happens locally in your browser. |
+| 📊 **PPTX Support** | Full watermark removal from PowerPoint presentations |
+| 📄 **PDF Support** | Annotation, text, and metadata cleanup for PDF files |
+| 🖱️ **Drag & Drop** | Intuitive file upload with visual feedback |
+| 📋 **Detailed Activity Log** | See exactly what was changed in your file |
+| ⚙️ **Configurable Options** | Toggle individual removal steps on/off |
+| 📱 **Responsive Design** | Works seamlessly on desktop and mobile devices |
+
+---
+
+## 🔧 How It Works
+
+### 📊 PPTX Processing (5-Step Pipeline)
+
+PPTX files are ZIP archives containing XML files. The app uses **JSZip** to unpack, modify, and repack them.
