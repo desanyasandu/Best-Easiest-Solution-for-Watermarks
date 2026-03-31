@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gamma Watermark Remover</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        :root{--bg1:#0a0a1a;--bg2:#12122a;--bg3:#1a1a3e;--card:rgba(255,255,255,0.04);--card-border:rgba(255,255,255,0.08);--accent:#a78bfa;--accent2:#c084fc;--accent3:#e879f9;--success:#34d399;--warning:#fbbf24;--text:#e2e8f0;--text-dim:#64748b;--text-dimmer:#475569}
+        @keyframes gradientShift{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+        @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes fadeIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+        @keyframes slideUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+        body{
+            font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+            background:var(--bg1);
+            min-height:100vh;color:var(--text);
+            overflow-x:hidden;
+        }
+        body::before{
+            content:'';position:fixed;top:0;left:0;right:0;bottom:0;
+            background:radial-gradient(ellipse at 20% 50%,rgba(120,60,220,.12) 0%,transparent 50%),
+                        radial-gradient(ellipse at 80% 20%,rgba(60,120,220,.08) 0%,transparent 50%),
+                        radial-gradient(ellipse at 50% 100%,rgba(220,60,120,.06) 0%,transparent 50%);
+            pointer-events:none;z-index:0;
+        }
+        .container{max-width:720px;margin:0 auto;padding:40px 20px;position:relative;z-index:1}
+        .header{text-align:center;margin-bottom:50px;animation:fadeIn .8s ease}
+        .logo{font-size:48px;margin-bottom:16px;display:inline-block;animation:float 3s ease-in-out infinite}
+        h1{
+            font-size:2.4em;font-weight:800;letter-spacing:-.03em;
+            background:linear-gradient(135deg,var(--accent),var(--accent3),#fb7185);
+            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+            background-size:200% 200%;animation:gradientShift 4s ease infinite;
+            line-height:1.2;margin-bottom:12px;
+        }
+        .subtitle{color:var(--text-dim);font-size:1.05em;line-height:1.6}
+        .subtitle span{color:var(--accent);font-weight:600}
+        .badge-row{display:flex;gap:8px;justify-content:center;margin-top:16px;flex-wrap:wrap}
+        .badge{
+            display:inline-flex;align-items:center;gap:6px;
+            padding:6px 14px;border-radius:100px;font-size:.78em;font-weight:600;
+            background:rgba(167,139,250,.1);color:var(--accent);
+            border:1px solid rgba(167,139,250,.15);
+        }
+        .badge.green{background:rgba(52,211,153,.1);color:var(--success);border-color:rgba(52,211,153,.15)}
+        /* Upload Area */
+        .upload-area{
+            border:2px dashed var(--card-border);border-radius:24px;
+            padding:60px 40px;text-align:center;cursor:pointer;
+            transition:all .4s cubic-bezier(.4,0,.2,1);
+            background:var(--card);position:relative;overflow:hidden;
+        }
+        .upload-area::before{
+            content:'';position:absolute;inset:0;
+            background:radial-gradient(circle at var(--mx,50%) var(--my,50%),rgba(167,139,250,.06) 0%,transparent 60%);
+            transition:opacity .3s;opacity:0;pointer-events:none;
+        }
+        .upload-area:hover::before,.upload-area.dragover::before{opacity:1}
+        .upload-area:hover,.upload-area.dragover{
+            border-color:var(--accent);background:rgba(167,139,250,.04);
+            transform:translateY(-3px);
+            box-shadow:0 20px 60px rgba(167,139,250,.08);
+        }
+        .upload-icon{font-size:56px;margin-bottom:20px;display:block}
+        .upload-text{font-size:1.15em;font-weight:600;margin-bottom:8px;color:var(--text)}
+        .upload-text span{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+        .upload-hint{color:var(--text-dim);font-size:.88em}
+        #fileInput{display:none}
+        /* Cards */
+        .card{
+            background:var(--card);border:1px solid var(--card-border);
+            border-radius:20px;padding:24px;margin-top:20px;
+            animation:slideUp .5s ease;backdrop-filter:blur(20px);
+        }
+        .card-title{font-weight:700;font-size:1em;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+        /* File Info */
+        .file-info{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+        .file-details{display:flex;align-items:center;gap:14px;min-width:0}
+        .file-icon{
+            width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;
+            font-size:22px;flex-shrink:0;
+        }
+        .file-icon.pptx{background:rgba(234,88,12,.15);color:#fb923c}
+        .file-icon.pdf{background:rgba(239,68,68,.15);color:#f87171}
+        .file-name{font-weight:600;font-size:1em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px}
+        .file-meta{color:var(--text-dim);font-size:.82em;margin-top:2px}
+        .file-badge{
+            display:inline-block;padding:2px 8px;border-radius:6px;font-size:.72em;
+            font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-left:8px;
+        }
+        .file-badge.pptx{background:rgba(234,88,12,.15);color:#fb923c}
+        .file-badge.pdf{background:rgba(239,68,68,.15);color:#f87171}
+        /* Options */
+        .option-item{
+            display:flex;align-items:flex-start;gap:12px;padding:12px 16px;
+            border-radius:12px;transition:background .2s;cursor:pointer;
+        }
+        .option-item:hover{background:rgba(255,255,255,.03)}
+        .option-item input[type=checkbox]{
+            width:20px;height:20px;accent-color:var(--accent);
+            border-radius:6px;margin-top:1px;flex-shrink:0;cursor:pointer;
+        }
+        .option-label{font-size:.92em;font-weight:500;cursor:pointer}
+        .option-desc{font-size:.78em;color:var(--text-dim);margin-top:2px}
+        /* Buttons */
+        .btn{
+            display:inline-flex;align-items:center;justify-content:center;gap:8px;
+            padding:14px 32px;border:none;border-radius:14px;font-size:1em;
+            font-weight:700;cursor:pointer;transition:all .3s cubic-bezier(.4,0,.2,1);
+            text-decoration:none;position:relative;overflow:hidden;
+        }
+        .btn-primary{
+            background:linear-gradient(135deg,var(--accent),var(--accent3));
+            color:#fff;width:100%;margin-top:20px;font-size:1.05em;
+        }
+        .btn-primary:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(167,139,250,.3)}
+        .btn-primary:active{transform:translateY(0)}
+        .btn-primary:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
+        .btn-download{
+            background:linear-gradient(135deg,var(--success),#2dd4bf);
+            color:#064e3b;padding:16px 40px;font-size:1.1em;
+        }
+        .btn-download:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(52,211,153,.3)}
+        .btn-ghost{
+            background:transparent;color:var(--text-dim);border:1px solid var(--card-border);
+            padding:10px 24px;font-size:.88em;
+        }
+        .btn-ghost:hover{border-color:var(--text-dim);color:var(--text)}
+        .btn-sm{padding:8px 16px;font-size:.82em;border-radius:10px}
+        /* Processing */
+        .processing{text-align:center;padding:50px 20px}
+        .spinner{
+            width:56px;height:56px;border:3px solid var(--card-border);
+            border-top-color:var(--accent);border-radius:50%;
+            animation:spin .8s linear infinite;margin:0 auto 24px;
+        }
+        .processing-text{color:var(--text-dim);font-size:.95em}
+        .processing-step{
+            display:inline-flex;align-items:center;gap:8px;
+            padding:6px 16px;border-radius:100px;font-size:.82em;
+            background:rgba(167,139,250,.1);color:var(--accent);
+            margin-top:12px;animation:pulse 1.5s ease-in-out infinite;
+        }
+        /* Results */
+        .result-card{border-color:rgba(52,211,153,.2)}
+        .result-header{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+        .result-header h3{font-size:1.15em;font-weight:700;color:var(--success)}
+        .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+        .stat{
+            text-align:center;padding:18px 12px;
+            background:rgba(0,0,0,.2);border-radius:14px;
+            border:1px solid var(--card-border);
+        }
+        .stat-number{font-size:2em;font-weight:800;color:var(--accent);line-height:1}
+        .stat-label{font-size:.72em;color:var(--text-dim);margin-top:6px;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+        .log-area{
+            background:rgba(0,0,0,.3);border-radius:12px;padding:16px;
+            max-height:220px;overflow-y:auto;margin-bottom:24px;
+            font-family:'JetBrains Mono','Fira Code',monospace;font-size:.8em;line-height:1.8;
+            border:1px solid var(--card-border);
+        }
+        .log-area::-webkit-scrollbar{width:6px}
+        .log-area::-webkit-scrollbar-track{background:transparent}
+        .log-area::-webkit-scrollbar-thumb{background:var(--card-border);border-radius:3px}
+        .log-item{padding:2px 0}
+        .log-item.info{color:#93c5fd}
+        .log-item.success{color:var(--success)}
+        .log-item.warning{color:var(--warning)}
+        .log-item.error{color:#f87171}
+        .result-actions{display:flex;align-items:center;gap:12px;justify-content:center;flex-wrap:wrap}
+        /* Privacy */
+        .privacy{
+            text-align:center;padding:40px 20px;
+            display:flex;align-items:center;justify-content:center;gap:8px;
+            color:var(--text-dimmer);font-size:.82em;
+        }
+        .privacy-icon{font-size:1.2em}
+        /* Responsive */
+        @media(max-width:600px){
+            h1{font-size:1.7em}
+            .container{padding:24px 16px}
+            .upload-area{padding:40px 24px}
+            .stats{grid-template-columns:repeat(3,1fr);gap:8px}
+            .stat{padding:14px 8px}
+            .stat-number{font-size:1.5em}
+            .file-name{max-width:160px}
+            .result-actions{flex-direction:column}
+            .result-actions .btn{width:100%}
+        }
+        .hidden{display:none!important}
+        .section{animation:slideUp .5s ease}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">🧹</div>
+            <h1>Gamma Watermark Remover</h1>
+            <p class="subtitle">Remove <span>"Made with Gamma"</span> watermarks from your presentations instantly</p>
+            <div class="badge-row">
+                <div class="badge">📊 PPTX Support</div>
+                <div class="badge">📄 PDF Support</div>
+                <div class="badge green">🔒 100% Client-Side</div>
+            </div>
+        </div>
+
+        <!-- Upload Area -->
+        <div id="uploadSection">
+            <div class="upload-area" id="uploadArea">
+                <span class="upload-icon">📂</span>
+                <div class="upload-text">Drop your file here or <span>browse</span></div>
+                <div class="upload-hint">Supports .pptx and .pdf files • Max 100MB</div>
+            </div>
+        </div>
+        <input type="file" id="fileInput" accept=".pptx,.pdf">
+
+        <!-- File Info -->
+        <div class="card hidden" id="fileCard">
+            <div class="file-info">
+                <div class="file-details">
+                    <div class="file-icon" id="fileIcon">📊</div>
+                    <div>
+                        <div class="file-name" id="fileName"></div>
+                        <div class="file-meta" id="fileMeta"></div>
+                    </div>
+                </div>
+                <button class="btn btn-ghost btn-sm" onclick="resetAll()">    Remove</button>
+            </div>
+        </div>
+
+        <!-- Options -->
+        <div class="card hidden" id="optionsCard">
+            <div class="card-title">⚙️ Removal Options</div>
+            
+            <div class="option-item" onclick="this.querySelector('input').click()">
+                <input type="checkbox" id="optShapes" checked onclick="event.stopPropagation()">
+                <div>
+                    <div class="option-label">Remove watermark shapes & text</div>
+                    <div class="option-desc">Removes shapes containing "Made with Gamma" from all slides</div>
+                </div>
+            </div>
+            
+            <div class="option-item" onclick="this.querySelector('input').click()">
+                <input type="checkbox" id="optLastSlide" checked onclick="event.stopPropagation()">
+                <div>
+                    <div class="option-label" id="optLastSlideLabel">Remove Gamma branding slide</div>
+                    <div class="option-desc" id="optLastSlideDesc">Removes the last slide/page if it's a Gamma branding slide</div>
+                </div>
+            </div>
+            
+            <div class="option-item" onclick="this.querySelector('input').click()">
+                <input type="checkbox" id="optLinks" checked onclick="event.stopPropagation()">
+                <div>
+                    <div class="option-label">Remove gamma.app hyperlinks</div>
+                    <div class="option-desc">Cleans all hyperlinks pointing to gamma.app</div>
+                </div>
+            </div>
+            
+            <div class="option-item" id="optMetadataRow" onclick="this.querySelector('input').click()">
+                <input type="checkbox" id="optMetadata" checked onclick="event.stopPropagation()">
+                <div>
+                    <div class="option-label">Clean metadata</div>
+                    <div class="option-desc">Removes Gamma references from file properties</div>
+                </div>
+            </div>
+
+            <button class="btn btn-primary" id="processBtn" onclick="processFile()">
+                🚀 Remove Watermarks
+            </button>
+        </div>
+
+        <!-- Processing -->
+        <div class="card hidden" id="processingCard">
+            <div class="processing">
+                <div class="spinner"></div>
+                <div class="processing-text">Processing your file...</div>
+                <div class="processing-step" id="processingStep">Analyzing structure</div>
+            </div>
+        </div>
+
+        <!-- Result -->
+        <div class="card result-card hidden" id="resultCard">
+            <div class="result-header">
+                <span style="font-size:1.5em">✅</span>
+                <h3>Watermarks Removed Successfully!</h3>
+            </div>
+
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-number" id="statShapes">0</div>
+                    <div class="stat-label">Shapes Removed</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number" id="statLinks">0</div>
+                    <div class="stat-label">Links Cleaned</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number" id="statSlides">0</div>
+                    <div class="stat-label">Slides Removed</div>
+                </div>
+            </div>
+
+            <div class="log-area" id="logArea"></div>
+
+            <div class="result-actions">
+                <button class="btn btn-download" onclick="downloadFile()">⬇️ Download Clean File</button>
+                <button class="btn btn-ghost" onclick="resetAll()">Process Another File</button>
+            </div>
+        </div>
+
+        <!-- Privacy Notice -->
+        <div class="privacy">
+            <span class="privacy-icon">🔒</span>
+            All processing happens locally in your browser. No files are uploaded to any server.
+        </div>
+    </div>
+
+<script>
+// ==========================================
+// STATE
+// ==========================================
+let currentFile = null;
+let processedBlob = null;
+let processedFileName = '';
+let logs = [];
+let stats = { shapes: 0, links: 0, slides: 0 };
+
+// ==========================================
+// UI SETUP
+// ==========================================
+const $ = id => document.getElementById(id);
+const uploadArea = $('uploadArea');
+const fileInput = $('fileInput');
+
+// Upload area interactions
+uploadArea.addEventListener('click', () => fileInput.click());
+uploadArea.addEventListener('mousemove', e => {
+    const rect = uploadArea.getBoundingClientRect();
+    uploadArea.style.setProperty('--mx', ((e.clientX - rect.left) / rect.width * 100) + '%');
+    uploadArea.style.setProperty('--my', ((e.clientY - rect.top) / rect.height * 100) + '%');
+});
+uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+uploadArea.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => { if (e.target.files.length) handleFile(e.target.files[0]); });
+
+// ==========================================
+// FILE HANDLING
+// ==========================================
+function handleFile(file) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext !== 'pptx' && ext !== 'pdf') {
+        alert('Please select a .pptx or .pdf file.');
+        return;
+    }
+    if (file.size > 100 * 1024 * 1024) {
+        alert('File too large. Maximum 100MB.');
+        return;
+    }
+
+    currentFile = file;
+    const isPPTX = ext === 'pptx';
+
+    // Update UI
+    $('fileName').textContent = file.name;
+    $('fileMeta').innerHTML = formatSize(file.size) + `<span class="file-badge ${ext}">${ext}</span>`;
+    $('fileIcon').className = 'file-icon ' + ext;
+    $('fileIcon').textContent = isPPTX ? '📊' : '📄';
+
+    // Toggle options visibility
+    $('optShapes').closest('.option-item').classList.toggle('hidden', !isPPTX);
+    $('optMetadataRow').classList.toggle('hidden', !isPPTX);
+    $('optLastSlideLabel').textContent = isPPTX ? 'Remove Gamma branding slide' : 'Remove Gamma branding page (last page)';
+    $('optLastSlideDesc').textContent = isPPTX
+        ? 'Removes the last slide if it only contains Gamma branding'
+        : 'Removes the last page of the PDF (commonly the Gamma branding page)';
+
+    show('fileCard'); show('optionsCard');
+    hide('uploadSection'); hide('processingCard'); hide('resultCard');
+}
+
+function formatSize(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1048576).toFixed(1) + ' MB';
+}
+
+function show(id) { $(id).classList.remove('hidden'); }
+function hide(id) { $(id).classList.add('hidden'); }
+
+function resetAll() {
+    currentFile = null; processedBlob = null; processedFileName = '';
+    fileInput.value = '';
+    show('uploadSection');
+    hide('fileCard'); hide('optionsCard'); hide('processingCard'); hide('resultCard');
+}
+
+// ==========================================
+// PROCESSING ENTRY POINT
+// ==========================================
+async function processFile() {
+    if (!currentFile) return;
+
+    logs = [];
+    stats = { shapes: 0, links: 0, slides: 0 };
+
+    hide('optionsCard'); show('processingCard');
+
+    const ext = currentFile.name.split('.').pop().toLowerCase();
+
+    try {
+        if (ext === 'pptx') {
+            processedBlob = await processPPTX(currentFile);
+            processedFileName = currentFile.name.replace(/\.pptx$/i, '_clean.pptx');
+        } else {
+            processedBlob = await processPDF(currentFile);
+            processedFileName = currentFile.name.replace(/\.pdf$/i, '_clean.pdf');
+        }
+        showResult();
+    } catch (err) {
+        console.error(err);
+        alert('Error processing file: ' + err.message);
+        hide('processingCard'); show('optionsCard');
+    }
+}
+
+function log(msg, type = 'info') { logs.push({ msg, type }); }
+
+function setStep(text) {
+    const el = $('processingStep');
+    if (el) el.textContent = text;
+}
+
+function showResult() {
+    hide('processingCard'); show('resultCard');
+    $('statShapes').textContent = stats.shapes;
+    $('statLinks').textContent = stats.links;
+    $('statSlides').textContent = stats.slides;
+    $('logArea').innerHTML = logs.map(l => `<div class="log-item ${l.type}">${l.msg}</div>`).join('');
+    $('logArea').scrollTop = $('logArea').scrollHeight;
+}
+
+function downloadFile() {
+    if (!processedBlob) return;
+    const url = URL.createObjectURL(processedBlob);
+    const a = document.createElement('a');
+    a.href = url; a.download = processedFileName;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// ==========================================
+// GAMMA DETECTION HELPERS
+// ==========================================
+function isGammaText(text) {
+    const t = text.toLowerCase();
+    return t.includes('gamma.app')
+        || t.includes('made with gamma')
+        || t.includes('made with  gamma')
+        || (t.includes('gamma') && t.includes('made with'));
+}
+
+function isGammaURL(str) {
+    return str && str.toLowerCase().includes('gamma.app');
+}
+
+// ==========================================
+// PPTX PROCESSING
+// ==========================================
+async function processPPTX(file) {
+    const opts = {
+        shapes: $('optShapes').checked,
+        lastSlide: $('optLastSlide').checked,
+        links: $('optLinks').checked,
+        metadata: $('optMetadata').checked
+    };
+
+    setStep('Loading PPTX archive...');
+    const buf = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buf);
+    const allFiles = Object.keys(zip.files);
+    log('📂 PPTX loaded — ' + allFiles.length + ' files in archive', 'info');
+
+    // ---- 1. Collect gamma relationship IDs per rels file ----
+    setStep('Scanning relationships...');
+    const gammaRIdMap = {}; // relsFilePath → Set<rId>
+
+    const relsFiles = allFiles.filter(f => f.endsWith('.rels'));
+    for (const rf of relsFiles) {
+        const content = await zip.file(rf).async('string');
+        const rIds = new Set();
+        const re = /<Relationship\s[^>]*>/g;
+        let m;
+        while ((m = re.exec(content)) !== null) {
+            if (isGammaURL(m[0])) {
+                const idM = m[0].match(/Id="([^"]+)"/);
+                if (idM) rIds.add(idM[1]);
+            }
+        }
+        if (rIds.size) {
+            gammaRIdMap[rf] = rIds;
+            log(`🔗 Found ${rIds.size} gamma link(s) in ${rf.split('/').pop()}`, 'info');
+        }
+    }
+
+    // ---- 2. Remove gamma hyperlink relationships from .rels files ----
+    if (opts.links) {
+        setStep('Removing gamma hyperlinks...');
+        for (const rf of relsFiles) {
+            let content = await zip.file(rf).async('string');
+            const before = content;
+            content = content.replace(/<Relationship\s[^>]*>/g, match => {
+                if (isGammaURL(match)) { stats.links++; return ''; }
+                return match;
+            });
+            if (content !== before) {
+                zip.file(rf, content);
+                log('🗑️ Cleaned links in ' + rf.split('/').pop(), 'warning');
+            }
+        }
+    }
+
+    // ---- 3. Remove watermark shapes from slides, layouts, masters ----
+    if (opts.shapes) {
+        setStep('Removing watermark shapes...');
+        const xmlGroups = [
+            { pattern: /^ppt\/slides\/slide\d+\.xml$/, label: 'slide', relsBase: 'ppt/slides/_rels/' },
+            { pattern: /^ppt\/slideLayouts\/slideLayout\d+\.xml$/, label: 'layout', relsBase: 'ppt/slideLayouts/_rels/' },
+            { pattern: /^ppt\/slideMasters\/slideMaster\d+\.xml$/, label: 'master', relsBase: 'ppt/slideMasters/_rels/' }
+        ];
+
+        for (const grp of xmlGroups) {
+            const xmlFiles = allFiles.filter(f => grp.pattern.test(f));
+            for (const xf of xmlFiles) {
+                const fname = xf.split('/').pop();
+                const relsPath = grp.relsBase + fname + '.rels';
+                const rIds = gammaRIdMap[relsPath] || new Set();
+                let content = await zip.file(xf).async('string');
+                const res = removeGammaShapes(content, rIds);
+                if (res.count > 0) {
+                    zip.file(xf, res.xml);
+                    stats.shapes += res.count;
+                    log(`🗑️ Removed ${res.count} shape(s) from ${fname}`, 'warning');
+                }
+            }
+        }
+    }
+
+    // ---- 4. Remove last slide if gamma branding ----
+    if (opts.lastSlide) {
+        setStep('Checking last slide...');
+        await tryRemoveLastSlide(zip, allFiles);
+    }
+
+    // ---- 5. Clean metadata ----
+    if (opts.metadata) {
+        setStep('Cleaning metadata...');
+        await cleanPPTXMetadata(zip);
+    }
+
+    log('✅ PPTX processing complete!', 'success');
+
+    setStep('Generating file...');
+    return await zip.generateAsync({
+        type: 'blob',
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+    });
+}
+
+// ---- Shape removal via regex (safe for non-nesting elements) ----
+function removeGammaShapes(xml, gammaRIds) {
+    let count = 0;
+
+    function shouldRemove(fragment) {
+        if (isGammaText(fragment)) return true;
+        for (const rid of gammaRIds) {
+            if (fragment.includes(`r:id="${rid}"`) || fragment.includes(`r:id='${rid}'`)) return true;
+        }
+        return false;
+    }
+
+    // mc:AlternateContent (wrapper — process first)
+    xml = xml.replace(/<mc:AlternateContent\b[\s\S]*?<\/mc:AlternateContent>/g, m => {
+        if (shouldRemove(m)) { count++; return ''; }
+        return m;
+    });
+
+    // p:grpSp (may nest — use depth-aware removal)
+    const grpResult = removeNestedTag(xml, 'p:grpSp', shouldRemove);
+    xml = grpResult.xml; count += grpResult.count;
+
+    // p:sp
+    xml = xml.replace(/<p:sp\b[\s\S]*?<\/p:sp>/g, m => {
+        if (shouldRemove(m)) { count++; return ''; }
+        return m;
+    });
+
+    // p:pic
+    xml = xml.replace(/<p:pic\b[\s\S]*?<\/p:pic>/g, m => {
+        if (shouldRemove(m)) { count++; return ''; }
+        return m;
+    });
+
+    // p:cxnSp
+    xml = xml.replace(/<p:cxnSp\b[\s\S]*?<\/p:cxnSp>/g, m => {
+        if (shouldRemove(m)) { count++; return ''; }
+        return m;
+    });
+
+    return { xml, count };
+}
+
+function removeNestedTag(xml, tag, predicate) {
+    const open = '<' + tag;
+    const close = '</' + tag + '>';
+    let result = ''; let i = 0; let count = 0;
+
+    while (i < xml.length) {
+        const oi = xml.indexOf(open, i);
+        if (oi === -1) { result += xml.slice(i); break; }
+
+        const after = xml[oi + open.length];
+        if (after && after !== ' ' && after !== '>' && after !== '/' && after !== '\t' && after !== '\n' && after !== '\r') {
+            result += xml.slice(i, oi + open.length);
+            i = oi + open.length;
+            continue;
+        }
+
+        // find matching close
+        let depth = 1, si = oi + open.length, ci = -1;
+        while (depth > 0 && si < xml.length) {
+            const no = xml.indexOf(open, si);
+            const nc = xml.indexOf(close, si);
+            if (nc === -1) break;
+            if (no !== -1 && no < nc) {
+                const c2 = xml[no + open.length];
+                if (!c2 || c2 === ' ' || c2 === '>' || c2 === '/' || c2 === '\t' || c2 === '\n' || c2 === '\r') depth++;
+                si = no + open.length;
+            } else {
+                depth--;
+                if (depth === 0) ci = nc;
+                si = nc + close.length;
+            }
+        }
+
+        if (ci === -1) { result += xml.slice(i, oi + open.length); i = oi + open.length; continue; }
+
+        const full = xml.slice(oi, ci + close.length);
+        if (predicate(full)) {
+            result += xml.slice(i, oi);
+            i = ci + close.length;
+            count++;
+        } else {
+            result += xml.slice(i, ci + close.length);
+            i = ci + close.length;
+        }
+    }
+    return { xml: result, count };
+}
+
+// ---- Last slide removal ----
+async function tryRemoveLastSlide(zip, allFiles) {
+    const presPath = 'ppt/presentation.xml';
+    const presRelsPath = 'ppt/_rels/presentation.xml.rels';
+    if (!zip.file(presPath) || !zip.file(presRelsPath)) { log('⚠️ presentation.xml not found', 'warning'); return; }
+
+    let presXml = await zip.file(presPath).async('string');
+    let presRels = await zip.file(presRelsPath).async('string');
+
+    // find all sldId entries
+    const sldIdRe = /<p:sldId\b[^/>]*(?:\/>|>[^<]*<\/p:sldId>)/g;
+    const sldIds = [...presXml.matchAll(sldIdRe)];
+    if (sldIds.length <= 1) { log('ℹ️ Only one slide — skipping last-slide removal', 'info'); return; }
+
+    const lastEntry = sldIds[sldIds.length - 1][0];
+    const ridM = lastEntry.match(/r:id="([^"]+)"/);
+    if (!ridM) { log('⚠️ Cannot determine last slide rId', 'warning'); return; }
+    const rId = ridM[1];
+
+    // find target in rels
+    const relRe = new RegExp(`<Relationship[^>]*Id="${rId}"[^>]*/?>`);
+    const relM = presRels.match(relRe);
+    if (!relM) { log('⚠️ Cannot find relationship for last slide', 'warning'); return; }
+    const tgtM = relM[0].match(/Target="([^"]+)"/);
+    if (!tgtM) return;
+    const target = tgtM[1]; // e.g. slides/slide5.xml
+    const slidePath = 'ppt/' + target;
+
+    if (!zip.file(slidePath)) { log('⚠️ Slide file not found: ' + slidePath, 'warning'); return; }
+
+    const slideXml = await zip.file(slidePath).async('string');
+
+    // check if it's gamma branding
+    if (!isGammaBrandingSlide(slideXml)) {
+        log('ℹ️ Last slide is not a Gamma branding slide — skipping', 'info');
+        return;
+    }
+
+    // Remove it
+    presXml = presXml.replace(lastEntry, '');
+    zip.file(presPath, presXml);
+
+    presRels = presRels.replace(relM[0], '');
+    zip.file(presRelsPath, presRels);
+
+    zip.remove(slidePath);
+    const slideRels = slidePath.replace(/([^/]+)$/, '_rels/$1.rels');
+    if (zip.file(slideRels)) zip.remove(slideRels);
+
+    // update [Content_Types].xml
+    if (zip.file('[Content_Types].xml')) {
+        let ct = await zip.file('[Content_Types].xml').async('string');
+        const esc = slidePath.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&');
+        ct = ct.replace(new RegExp(`<Override[^>]*PartName="/?${esc}"[^>]*/?>`, 'g'), '');
+        zip.file('[Content_Types].xml', ct);
+    }
+
+    stats.slides++;
+    log('🗑️ Removed Gamma branding slide: ' + target, 'warning');
+}
+
+function isGammaBrandingSlide(xml) {
+    // extract visible text
+    const texts = [];
+    const re = /<a:t>([^<]*)<\/a:t>/g;
+    let m;
+    while ((m = re.exec(xml)) !== null) texts.push(m[1].trim());
+    const full = texts.join(' ').toLowerCase();
+    if (!full) return false;
+    const hasGamma = full.includes('gamma') || full.includes('made with');
+    return hasGamma && full.length < 300;
+}
+
+// ---- Metadata cleanup ----
+async function cleanPPTXMetadata(zip) {
+    const appPath = 'docProps/app.xml';
+    if (zip.file(appPath)) {
+        let c = await zip.file(appPath).async('string');
+        const b = c;
+        c = c.replace(/<Application>[^<]*<\/Application>/gi, '<Application>Microsoft Office PowerPoint</Application>');
+        c = c.replace(/<AppVersion>[^<]*<\/AppVersion>/gi, '<AppVersion>16.0000</AppVersion>');
+        c = c.replace(/<Company>[^<]*gamma[^<]*<\/Company>/gi, '<Company></Company>');
+        if (c !== b) { zip.file(appPath, c); log('🧹 Cleaned app metadata', 'info'); }
+    }
+    const corePath = 'docProps/core.xml';
+    if (zip.file(corePath)) {
+        let c = await zip.file(corePath).async('string');
+        const b = c;
+        c = c.replace(/(<dc:creator>)([^<]*gamma[^<]*)(<\/dc:creator>)/gi, '$1$3');
+        c = c.replace(/(<cp:lastModifiedBy>)([^<]*gamma[^<]*)(<\/cp:lastModifiedBy>)/gi, '$1$3');
+        if (c !== b) { zip.file(corePath, c); log('🧹 Cleaned core metadata', 'info'); }
+    }
+}
+
+// ==========================================
+// PDF PROCESSING
+// ==========================================
+async function processPDF(file) {
+    const opts = {
+        lastPage: $('optLastSlide').checked,
+        links: $('optLinks').checked
+    };
+
+    setStep('Loading PDF...');
+    const buf = await file.arrayBuffer();
+    const { PDFDocument, PDFName, PDFArray, PDFDict, PDFRef, PDFString, PDFHexString } = PDFLib;
+    const pdfDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
+    const pageCount = pdfDoc.getPageCount();
+    log(`📂 PDF loaded — ${pageCount} page(s)`, 'info');
+
+    // ---- Remove gamma annotations ----
+    if (opts.links) {
+        setStep('Scanning annotations...');
+        const pages = pdfDoc.getPages();
+        for (let pi = 0; pi < pages.length; pi++) {
+            try {
+                const page = pages[pi];
+                const annotsRaw = page.node.get(PDFName.of('Annots'));
+                if (!annotsRaw) continue;
+
+                let annots = annotsRaw;
+                if (annotsRaw instanceof PDFRef) annots = pdfDoc.context.lookup(annotsRaw);
+                if (!(annots instanceof PDFArray)) continue;
+
+                const keep = [];
+                let removed = 0;
+
+                for (let j = 0; j < annots.size(); j++) {
+                    const entry = annots.get(j);
+                    let dict = entry;
+                    if (entry instanceof PDFRef) dict = pdfDoc.context.lookup(entry);
+                    if (!(dict instanceof PDFDict)) { keep.push(entry); continue; }
+
+                    let isGamma = false;
+                    try {
+                        let aRef = dict.get(PDFName.of('A'));
+                        let aDict = aRef instanceof PDFRef ? pdfDoc.context.lookup(aRef) : aRef;
+                        if (aDict instanceof PDFDict) {
+                            const uri = aDict.get(PDFName.of('URI'));
+                            if (uri) {
+                                let uriStr = '';
+                                if (typeof uri.decodeText === 'function') uriStr = uri.decodeText();
+                                else if (typeof uri.asString === 'function') uriStr = uri.asString();
+                                else uriStr = uri.toString();
+                                if (isGammaURL(uriStr)) isGamma = true;
+                            }
+                        }
+                    } catch (_) {}
+
+                    if (isGamma) { removed++; stats.links++; }
+                    else keep.push(entry);
+                }
+
+                if (removed > 0) {
+                    if (keep.length === 0) {
+                        page.node.delete(PDFName.of('Annots'));
+                    } else {
+                        const newArr = PDFArray.withContext(pdfDoc.context);
+                        keep.forEach(e => newArr.push(e));
+                        page.node.set(PDFName.of('Annots'), newArr);
+                    }
+                    log(`🗑️ Removed ${removed} gamma link(s) from page ${pi + 1}`, 'warning');
+                }
+            } catch (e) {
+                // skip page on error
+            }
+        }
+    }
+
+    // ---- Try to remove gamma watermark text from content streams ----
+    setStep('Scanning content streams...');
+    try {
+        const pages = pdfDoc.getPages();
+        for (let pi = 0; pi < pages.length; pi++) {
+            const page = pages[pi];
+            const contentsRef = page.node.get(PDFName.of('Contents'));
+            if (!contentsRef) continue;
+
+            let streams = [];
+            const resolved = contentsRef instanceof PDFRef ? pdfDoc.context.lookup(contentsRef) : contentsRef;
+            
+            if (resolved instanceof PDFArray) {
+                for (let si = 0; si < resolved.size(); si++) {
+                    const sRef = resolved.get(si);
+                    const stream = sRef instanceof PDFRef ? pdfDoc.context.lookup(sRef) : sRef;
+                    if (stream && typeof stream.getContents === 'function') {
+                        streams.push({ stream, ref: sRef instanceof PDFRef ? sRef : null });
+                    }
+                }
+            } else if (resolved && typeof resolved.getContents === 'function') {
+                streams.push({ stream: resolved, ref: contentsRef instanceof PDFRef ? contentsRef : null });
+            }
+
+            for (const { stream } of streams) {
+                try {
+                    const bytes = stream.getContents();
+                    const text = new TextDecoder('latin1').decode(bytes);
+                    
+                    if (text.toLowerCase().includes('gamma.app') || text.toLowerCase().includes('made with gamma')) {
+                        // Try to remove the gamma text block
+                        let modified = text;
+                        
+                        // Remove text blocks containing gamma references
+                        // Pattern: BT ... (gamma text) ... ET
+                        modified = modified.replace(/BT[\s\S]*?ET/g, block => {
+                            if (block.toLowerCase().includes('gamma.app') || block.toLowerCase().includes('made with gamma')) {
+                                stats.shapes++;
+                                return '';
+                            }
+                            return block;
+                        });
+                        
+                        if (modified !== text) {
+                            const newBytes = new TextEncoder().encode(modified);
+                            stream.setContents(newBytes);
+                            log(`🗑️ Removed watermark text from page ${pi + 1} content stream`, 'warning');
+                        }
+                    }
+                } catch (_) {}
+            }
+        }
+    } catch (e) {
+        // Content stream processing is best-effort
+    }
+
+    // ---- Remove last page ----
+    if (opts.lastPage && pageCount > 1) {
+        setStep('Removing last page...');
+        pdfDoc.removePage(pageCount - 1);
+        stats.slides++;
+        log(`🗑️ Removed last page (page ${pageCount})`, 'warning');
+    }
+
+    // ---- Clean metadata ----
+    try {
+        const info = pdfDoc.context.lookup(pdfDoc.context.trailerInfo.Info);
+        if (info instanceof PDFDict) {
+            const producer = info.get(PDFName.of('Producer'));
+            if (producer) {
+                const pStr = typeof producer.decodeText === 'function' ? producer.decodeText() : producer.toString();
+                if (pStr.toLowerCase().includes('gamma')) {
+                    info.delete(PDFName.of('Producer'));
+                    log('🧹 Cleaned PDF producer metadata', 'info');
+                }
+            }
+            const creator = info.get(PDFName.of('Creator'));
+            if (creator) {
+                const cStr = typeof creator.decodeText === 'function' ? creator.decodeText() : creator.toString();
+                if (cStr.toLowerCase().includes('gamma')) {
+                    info.delete(PDFName.of('Creator'));
+                    log('🧹 Cleaned PDF creator metadata', 'info');
+                }
+            }
+        }
+    } catch (_) {}
+
+    log('✅ PDF processing complete!', 'success');
+
+    setStep('Generating PDF...');
+    const pdfBytes = await pdfDoc.save();
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+}
+</script>
+</body>
+</html>
